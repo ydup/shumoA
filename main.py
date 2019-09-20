@@ -17,28 +17,24 @@ from sklearn.metrics import explained_variance_score
 import xgboost as xgb
 from sklearn.model_selection import GridSearchCV, KFold, cross_val_score
 from math import sqrt
-from sklearn.linear_model import ElasticNet, Lasso,  BayesianRidge, LassoLarsIC
+from sklearn.linear_model import ElasticNet, Lasso, BayesianRidge, LassoLarsIC
 from sklearn.ensemble import RandomForestRegressor,  GradientBoostingRegressor, AdaBoostRegressor
 from sklearn.linear_model import Ridge
 import time
 
-def Invilidation(predictions, val_class):
-    pre_class=np.zeros(len(val_class))
-    for k in range(len(predictions)):
-        if predictions[k]<-103:
-            pre_class[k]=1.
-    TP=0
-    FP=0
-    FN=0
-    TN=0
+def Invilidation(predictions, targets):
+    val_class, pre_class = np.zeros_like(targets), np.zeros_like(targets)
+    val_class[targets<-103] = 1.
+    pre_class[predictions<-103] = 1.
+    TP, FP, FN, TN = 0, 0, 0, 0
     for i in range(len(val_class)):
-        if val_class[i]==1. and pre_class[i]==val_class[i]:
+        if val_class[i]==1. and pre_class[i]==1.:
             TP=TP+1
         if val_class[i]==0. and pre_class[i]==1.:
             FP=FP+1
         if val_class[i]==1. and pre_class[i]==0.:
             FN=FN+1
-        if val_class[i]==0. and pre_class[i]==val_class[i]:
+        if val_class[i]==0. and pre_class[i]==0.:
             TN=TN+1
     Recall=TP/(TP+FN)
     Precision =TP/(TP+FP)
@@ -116,6 +112,14 @@ def add_clutter_type(data):
         data.loc[:, name] = tmp
     return data
 
+def divideDistance(data, bins=5):
+    logDistance = np.log10(1+data.loc[:, 'seperation_distance'].values)
+    plane4type = (bins-1) * np.ones_like(logDistance)
+    for idx, bound in enumerate(np.linspace(0, np.log10(5000), bins)):
+        plane4type[(logDistance<bound+5)&(logDistance>bound)] = idx + 1
+    data.loc[:, 'plane4type'] = plane4type
+    return data
+
 def add_feature(data):
     '''Add new features into data'''
     data.loc[:, 'Effective_Cell_Height'] = data.loc[:, 'Height'].values + data.loc[:, 'Cell Altitude'].values
@@ -144,7 +148,6 @@ def add_feature(data):
         pass
     pca = decomposition.PCA(n_components=3)
     pcafeature = pca.fit_transform(tempdata)
-    print(pcafeature.shape)
     for idx in np.arange(3):
         # data.loc[:, ['pca{0}'.format(i) for i in range(3)]]=pcafeature
         # ['pca{0}'.format(i) for i in range(3)]
@@ -164,7 +167,7 @@ def add_feature(data):
     #data = ConvHeight(data, 3)
     #data = ConvHeight(data, 5)
     data = add_clutter_type(data)
-    
+    data = divideDistance(data)
     return data
 
 
@@ -190,43 +193,49 @@ validate = pd.read_csv('test.csv')
 
 test = {'Name': [], 'Data': []}
 for testfile in os.listdir('../../Downloads/test_set/'):
-    test['Data'].append(np.log1p(add_feature(pd.read_csv(os.path.join('../../Downloads/test_set/',testfile)))))
+    test['Data'].append(add_feature(pd.read_csv(os.path.join('../../Downloads/test_set/',testfile))))
     test['Name'].append(testfile)
 
+# Get the divideDistance: Transmitter - 1 -> 2 -> 3 -> 4 -> 
+# Build up 4 models for different place
 trainX, trainY = train.drop('RSRP',axis=1), train['RSRP']
-trainX = np.log1p(trainX)
-
 valX, valY = validate.drop('RSRP',axis=1), validate['RSRP']
-valX = np.log1p(valX)
 
-xgb_model = XGBRegressor(booster='gbtree',
-                    objective= 'reg:linear',
-                    eval_metric='rmse',
-                    gamma = 0.05,
-                    min_child_weight=3,
-                    max_depth= 11,
-                    subsample= 0.8,
-                    colsample_bytree= 0.8,
-                    tree_method= 'exact',
-                    learning_rate=0.1,
-                    n_estimators=300,
-                    nthread=4,
-                    scale_pos_weight=1,
-                    seed=27)
+model = []
+for _ in range(1, 5):
+    xgb_model = XGBRegressor(booster='gbtree',
+                        objective= 'reg:linear',
+                        eval_metric='rmse',
+                        gamma = 0.05,
+                        min_child_weight=3,
+                        max_depth= 6,
+                        subsample= 0.8,
+                        colsample_bytree= 0.8,
+                        tree_method= 'exact',
+                        learning_rate=0.1,
+                        n_estimators=30,
+                        scale_pos_weight=1,
+                        seed=27)
+    model.append(xgb_model)
 
-begin_time=time.time()
-#score=cv_rmse(xgb_model,X,y)
-xgb_model.fit(trainX, trainY)
-print('Fitting: %f s' % (time.time()-begin_time))
+valY_predict = np.zeros_like(valY)
 
-valY_predict = xgb_model.predict(valX)
-# plot_importance()
+plane4type_train = trainX.loc[:, 'plane4type'].values
+plane4type_val = valX.loc[:, 'plane4type'].values
+
+for idx, plane_type in tqdm(enumerate(range(1, 5))):
+
+    trainX_, trainY_ = trainX.loc[plane4type_train==plane_type, :], trainY.loc[plane4type_train==plane_type]
+    trainX_ = trainX_.drop('plane4type', axis=1)
+    model[idx].fit(trainX_, trainY_)
+
+    valX_, valY_ = valX.loc[plane4type_val==plane_type, :], valY.loc[plane4type_val==plane_type]
+    valX_ = valX_.drop('plane4type', axis=1)
+    valY_predict[plane4type_val==plane_type] = model[idx].predict(valX_)
 
 Rmse = sqrt(mean_squared_error(valY_predict,valY.values))
-val_class = np.zeros_like(valY)
 
-val_class[valY.values<-103] = 1 
-Recall, Precision, PCRR = Invilidation(valY_predict, val_class)
+Recall, Precision, PCRR = Invilidation(valY_predict, valY.values)
 
 print("Recall : %.4g" % Recall)
 print("Precision : %.4g" % Precision)
@@ -234,10 +243,14 @@ print("PCRR : %.4g" % PCRR)
 print("Rmse : %.4g" % Rmse)
  
 for name, data in zip(test['Name'], test['Data']):
-    predict_test = xgb_model.predict(data)
+    predict_test = np.zeros([data.shape[0], ])
+    plane4type_test = data.loc[:, 'plane4type'].values
+    for idx, plane_type in tqdm(enumerate(range(1, 5))):
+        testX = data.loc[plane4type_test==plane_type, :]
+        testX = testX.drop('plane4type', axis=1)
+        predict_test[plane4type_test == plane_type] = model[idx].predict(testX)
     dict_output = {'RSRP': None}
     dict_output['RSRP'] = np.reshape(predict_test, [-1, 1]).tolist()
-    print(dict_output)
     with open('{0}_result.txt'.format(name), "w") as f:
         f.write(str(dict_output))
 
