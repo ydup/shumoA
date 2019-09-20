@@ -108,7 +108,13 @@ def ConvHeight(data, kernel_r = 1):
     data.loc[:, 'conv_pos_{0}'.format(kernel_r)] = kernelPer
     return data
 
-
+def add_clutter_type(data):
+    nameList = ['water_index', 'broaden_index', 'plant_index', 'bulding_index']
+    for name, start in zip(nameList, [0, 3, 6, 9]):
+        tmp = np.zeros_like(data.loc[:, 'Clutter Index'])
+        tmp[(start<data.loc[:, 'Clutter Index'].values)&(data.loc[:, 'Clutter Index'].values<start+4)] = 1
+        data.loc[:, name] = tmp
+    return data
 
 def add_feature(data):
     '''Add new features into data'''
@@ -146,9 +152,10 @@ def add_feature(data):
         # data.loc[:, ['pca{0}'.format(i) for i in range(3)]]=pcafeature
         data.loc[:, name] = clutter[:, idx]
     # data = data.drop(['X', 'Y', 'Cell X', 'Cell Y', 'Clutter Index'], axis=1) 
-    data = ConvHeight(data, 1)
-    data = ConvHeight(data, 3)
-    data = ConvHeight(data, 5)
+    #data = ConvHeight(data, 1)
+    #data = ConvHeight(data, 3)
+    #data = ConvHeight(data, 5)
+    data = add_clutter_type(data)
     return data
 
 def get_data(data_path):
@@ -169,7 +176,7 @@ data=get_data('./train_set/')
 y=data['RSRP']
 #y=np.log1p(-y)
 X=data.drop('RSRP',axis=1)
-# X=np.log1p(X)
+X=np.log1p(X)
 
 
 #分割训练集和验证集
