@@ -42,6 +42,35 @@ def rec2polar(x, y):
             theta = -np.pi
     return R, theta
 
+def rec2polar_array(x, y):
+    R = np.sqrt(x**2 + y**2)  # the length from (tmp_x, tmp_y) to (0, 0)
+    # the point is at y axis
+    theta = np.zeros_like(R)
+    theta[x == 0] = np.sign(y[x == 0])*np.pi/2
+    # the point is at I and IV regions
+    theta[x > 0] = np.arctan(y[x > 0]/x[x > 0])
+    # the point is at II and III regions
+    theta[x < 0] = np.sign(y[x < 0])*np.pi+np.arctan(y[x < 0]/x[x < 0])
+    return theta
+
+def sliceXY(data):
+    deltaTheta = data.loc[:, 'deltaTheta'].values
+    plane = np.zeros_like(deltaTheta)
+    plane[((deltaTheta <= 45)&(deltaTheta > 0))|((deltaTheta <= 360)&(deltaTheta > 315))] = 1
+    plane[(deltaTheta <= 90)&(deltaTheta > 45)] = 2
+    plane[(deltaTheta <= 135)&(deltaTheta > 90)] = 3
+    plane[((deltaTheta <= 180)&(deltaTheta > 135))|((deltaTheta <= 225)&(deltaTheta > 180))] = 4
+    plane[(deltaTheta <= 270)&(deltaTheta > 225)] = 5
+    plane[(deltaTheta <= 315)&(deltaTheta > 270)] = 6
+    data.loc[:, 'XYslice'] = plane
+    plane[plane==6] = 2
+    plane[plane==5] = 3
+    data.loc[:, 'XYpower'] = plane
+    return data
+
+def sliceZ(data):
+    pass
+
 def ConvHeight(data, kernel_r = 1):
     bins = (np.arange(data.loc[:, 'X_relative'].min()-10.0, data.loc[:, 'X_relative'].max()+10.0, 5.0), 
             np.arange(data.loc[:, 'Y_relative'].min()-10.0, data.loc[:, 'Y_relative'].max()+10.0, 5.0))
@@ -90,21 +119,18 @@ def add_feature(data):
     data.loc[:, 'X_relative'] = data.loc[:, 'X'] - data.loc[:, 'Cell X'] - 2.5
     data.loc[:, 'Y_relative'] = data.loc[:, 'Y'] - data.loc[:, 'Cell Y'] + 2.5
     data.loc[:, 'deltaH'] = data.loc[:, 'Effective_Cell_Height'] - data.loc[:, 'Effective_Height'] - data.loc[:, 'seperation_distance']*np.tan(np.pi/180.0*(data.loc[:, 'Electrical Downtilt']+data.loc[:, 'Mechanical Downtilt']))
-    deltaTheta = []
-    theta_relative = []
-    for x, y, t in zip(data.loc[:, 'X_relative'].values, data.loc[:, 'Y_relative'].values, data.loc[:, 'Azimuth'].values):
-        _, theta = rec2polar(float(x), float(y))
-        thetaXY = (90 - theta*180.0/np.pi)
-        if thetaXY < 0:
-            thetaXY += 360
-        theta_relative.append(thetaXY)
-        deltaTh = thetaXY - t
-        if deltaTh < 0:
-            deltaTh += 360
-        deltaTheta.append(deltaTh)
-    data.loc[:, 'deltaTheta'] = deltaTheta
-    data.loc[:, 'theta_relative'] = theta_relative
-    
+
+    data.loc[:, 'distance_3D'] = np.sqrt(data.loc[:, 'seperation_distance']**2 + data.loc[:, 'deltaH']**2)
+    data.loc[:, 'vertical_theta'] = rec2polar_array(data.loc[:, 'deltaH'].values, data.loc[:, 'seperation_distance'].values)*180.0/np.pi
+    data.loc[:, 'horizon_theta'] = rec2polar_array(data.loc[:, 'X_relative'].values, data.loc[:, 'Y_relative'].values)
+    deltaTheta, theta_relative = [], []
+    thetaXY = 90 - data.loc[:, 'horizon_theta']*180.0/np.pi
+    thetaXY[thetaXY<0] += 360
+    data.loc[:, 'horizon_theta'] = thetaXY
+    deltaTh = thetaXY - data.loc[:, 'Azimuth']
+    deltaTh[deltaTh<0] += 360
+    data.loc[:, 'deltaTheta'] = deltaTh
+
     tempdata = preprocessing.scale(data.drop('RSRP', axis=1).values, axis=0)
     pca = decomposition.PCA(n_components=3)
     pcafeature = pca.fit_transform(tempdata)
