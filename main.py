@@ -43,25 +43,19 @@ def rec2polar(x, y):
     return R, theta
 
 def ConvHeight(data, kernel_r = 1):
+    bins = (np.arange(data.loc[:, 'X_relative'].min()-10.0, data.loc[:, 'X_relative'].max()+10.0, 5.0), 
+            np.arange(data.loc[:, 'Y_relative'].min()-10.0, data.loc[:, 'Y_relative'].max()+10.0, 5.0))
     map2d, _, _ = np.histogram2d(data.loc[:, 'X_relative'].values, data.loc[:, 'Y_relative'].values, 
-                  bins=(np.arange(data.loc[:, 'X_relative'].min()-10.0, data.loc[:, 'X_relative'].max()+10.0, 5.0), 
-                  np.arange(data.loc[:, 'Y_relative'].min()-10.0, data.loc[:, 'Y_relative'].max()+10.0, 5.0)), 
-                  weights=data.loc[:, 'Effective_Height'].values
-                                )
+                  bins=bins, weights=data.loc[:, 'Effective_Height'].values)
     idx2d, _, _ = np.histogram2d(data.loc[:, 'X_relative'].values, data.loc[:, 'Y_relative'].values, 
-                  bins=(np.arange(data.loc[:, 'X_relative'].min()-10.0, data.loc[:, 'X_relative'].max()+10.0, 5.0), 
-                  np.arange(data.loc[:, 'Y_relative'].min()-10.0, data.loc[:, 'Y_relative'].max()+10.0, 5.0)), 
-                  weights=data.index+1
-                                )
+                  bins=bins, weights=data.index+1)
     conv_Sum = np.zeros_like(idx2d)
     conv_Num = np.zeros_like(idx2d)
 
     kernelHeight = []
     kernelPos = []
-    print(np.max(idx2d))
     for idx in data.index+1:
         center = np.argwhere(idx2d==idx)
-        # print(center, idx)
         param_grid = {'x': np.arange(center[0][0]-kernel_r, center[0][0]+kernel_r+1, 1), 'y': np.arange(center[0][1]-kernel_r, center[0][1]+kernel_r+1, 1)}
         param = list(ParameterGrid(param_grid))
         kernelSum = 0
@@ -85,21 +79,32 @@ def ConvHeight(data, kernel_r = 1):
     data.loc[:, 'conv_pos_{0}'.format(kernel_r)] = kernelPer
     return data
 
+
+
 def add_feature(data):
     '''Add new features into data'''
     data.loc[:, 'Effective_Cell_Height'] = data.loc[:, 'Height'] + data.loc[:, 'Cell Altitude']
     data.loc[:, 'Effective_Height'] = data.loc[:, 'Altitude'] + data.loc[:, 'Building Height']
-    data.loc[:, 'seperation_distance'] = np.sqrt((data.loc[:, 'X'] - data.loc[:, 'Cell X'] - 2.5)**2 + (data.loc[:, 'Y'] - data.loc[:, 'Cell Y'] - 2.5)**2)
+    data.loc[:, 'seperation_distance'] = np.sqrt((data.loc[:, 'X'] - data.loc[:, 'Cell X'] - 2.5)**2 + (data.loc[:, 'Y'] - data.loc[:, 'Cell Y'] + 2.5)**2)
     data.loc[:, 'dh'] = np.log10(1+data.loc[:, 'seperation_distance'])*np.log10(1+data.loc[:, 'Effective_Cell_Height'])
     data.loc[:, 'X_relative'] = data.loc[:, 'X'] - data.loc[:, 'Cell X'] - 2.5
-    data.loc[:, 'Y_relative'] = data.loc[:, 'Y'] - data.loc[:, 'Cell Y'] - 2.5
+    data.loc[:, 'Y_relative'] = data.loc[:, 'Y'] - data.loc[:, 'Cell Y'] + 2.5
     data.loc[:, 'deltaH'] = data.loc[:, 'Effective_Cell_Height'] - data.loc[:, 'Effective_Height'] - data.loc[:, 'seperation_distance']*np.tan(np.pi/180.0*(data.loc[:, 'Electrical Downtilt']+data.loc[:, 'Mechanical Downtilt']))
     deltaTheta = []
+    theta_relative = []
     for x, y, t in zip(data.loc[:, 'X_relative'].values, data.loc[:, 'Y_relative'].values, data.loc[:, 'Azimuth'].values):
         _, theta = rec2polar(float(x), float(y))
-        # print(x, y, t, theta)
-        deltaTheta.append(t - (90 - theta*180.0/np.pi))
+        thetaXY = (90 - theta*180.0/np.pi)
+        if thetaXY < 0:
+            thetaXY += 360
+        theta_relative.append(thetaXY)
+        deltaTh = thetaXY - t
+        if deltaTh < 0:
+            deltaTh += 360
+        deltaTheta.append(deltaTh)
     data.loc[:, 'deltaTheta'] = deltaTheta
+    data.loc[:, 'theta_relative'] = theta_relative
+    
     tempdata = preprocessing.scale(data.drop('RSRP', axis=1).values, axis=0)
     pca = decomposition.PCA(n_components=3)
     pcafeature = pca.fit_transform(tempdata)
