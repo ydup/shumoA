@@ -91,7 +91,7 @@ def get_nearestFeature(receiver, transmitter, top_n_num=4):
         flatten = np.append(flatten, np.array(neighborNum))  # concat neighborNum list
         topFeature.append(flatten)
     topFeature = np.stack(topFeature, axis=0)
-    columns = np.reshape([[str(int(origin))+'_'+str(int(top_n)) for top_n in range(top_n_num)] for origin in list(topTransmitter.columns)],
+    columns = np.reshape([[str(origin)+'_'+str(int(top_n)) for top_n in range(top_n_num)] for origin in list(topTransmitter.columns)],
            [1, -1]) 
     columns = np.append(columns, ['nearest_distance_'+str(int(top_n)) for top_n in range(top_n_num)])
     columns = np.append(columns, ['neighbor_num_'+str(int(thres)) for thres in thresList])
