@@ -1,5 +1,4 @@
-import matplotlib
-matplotlib.use('Agg')
+
 import datetime
 import pandas as pd
 import numpy as np
@@ -39,218 +38,60 @@ def Invilidation(predictions, targets):
     Recall=TP/(TP+FN)
     Precision =TP/(TP+FP)
     PCRR=2*Precision*Recall/(Precision+Recall)
-    return Recall,Precision,PCRR
+    return Recall, Precision, PCRR
 
-def rec2polar_array(x, y):
-    R = np.sqrt(x**2 + y**2)  # the length from (tmp_x, tmp_y) to (0, 0)
-    # the point is at y axis
-    theta = np.zeros_like(R)
-    theta[x == 0] = np.sign(y[x == 0])*np.pi/2
-    # the point is at I and IV regions
-    theta[x > 0] = np.arctan(y[x > 0]/x[x > 0])
-    # the point is at II and III regions
-    theta[x < 0] = np.sign(y[x < 0])*np.pi+np.arctan(y[x < 0]/x[x < 0])
-    return theta
+data = []
+for i in tqdm(range(28)):
+    data.append(pd.read_csv('feature/new_feature_receive_'+str(int(i))+'.csv', index_col=0))
 
-def sliceXY(data):
-    deltaTheta = data.loc[:, 'deltaTheta'].values
-    plane = np.zeros_like(deltaTheta)
-    plane[((deltaTheta <= 45)&(deltaTheta > 0))|((deltaTheta <= 360)&(deltaTheta > 315))] = 1
-    plane[(deltaTheta <= 90)&(deltaTheta > 45)] = 2
-    plane[(deltaTheta <= 135)&(deltaTheta > 90)] = 3
-    plane[((deltaTheta <= 180)&(deltaTheta > 135))|((deltaTheta <= 225)&(deltaTheta > 180))] = 4
-    plane[(deltaTheta <= 270)&(deltaTheta > 225)] = 5
-    plane[(deltaTheta <= 315)&(deltaTheta > 270)] = 6
-    data.loc[:, 'XYslice'] = plane
-    plane[plane==6] = 2
-    plane[plane==5] = 3
-    data.loc[:, 'XYpower'] = plane
-    return data
+data = pd.concat(data, axis=0)
+data.index = np.arange(data.shape[0])
 
-def ConvHeight(data, kernel_r = 1):
-    bins = (np.arange(data.loc[:, 'X_relative'].min()-10.0, data.loc[:, 'X_relative'].max()+10.0, 5.0), 
-            np.arange(data.loc[:, 'Y_relative'].min()-10.0, data.loc[:, 'Y_relative'].max()+10.0, 5.0))
-    map2d, _, _ = np.histogram2d(data.loc[:, 'X_relative'].values, data.loc[:, 'Y_relative'].values, 
-                  bins=bins, weights=data.loc[:, 'Effective_Height'].values)
-    idx2d, _, _ = np.histogram2d(data.loc[:, 'X_relative'].values, data.loc[:, 'Y_relative'].values, 
-                  bins=bins, weights=data.index+1)
-    conv_Sum = np.zeros_like(idx2d)
-    conv_Num = np.zeros_like(idx2d)
+# validate = pd.read_csv('test.csv')
+percentage = 0.95
+idx = list(range(data.shape[0]))
+import random
+random.seed(10)
+random.shuffle(idx)
+train = data.loc[idx[0: int(percentage*data.shape[0])], :]
+validate = data.loc[idx[int(percentage*data.shape[0]): ], :]
 
-    kernelHeight = []
-    kernelPos = []
-    for idx in data.index+1:
-        center = np.argwhere(idx2d==idx)
-        param_grid = {'x': np.arange(center[0][0]-kernel_r, center[0][0]+kernel_r+1, 1), 'y': np.arange(center[0][1]-kernel_r, center[0][1]+kernel_r+1, 1)}
-        param = list(ParameterGrid(param_grid))
-        kernelSum = 0
-        posNum = 0
-        for p in param:
-            try:
-                relative_center = map2d[p['x'], p['y']] - map2d[center[0][0], center[0][1]]
-            except:
-                relative_center = 0  # out of bound
-            if relative_center > 0:
-                kernelSum += relative_center
-                posNum += 1
-
-        kernelHeight.append(kernelSum)
-        kernelPer = posNum / ((kernel_r*2+1)**2-1)
-        kernelPos.append(kernelPer)
-        conv_Sum[center[0][0], center[0][1]] = kernelSum
-        conv_Num[center[0][0], center[0][1]] = kernelPer
-        
-    data.loc[:, 'conv_sum_{0}'.format(kernel_r)] = kernelSum
-    data.loc[:, 'conv_pos_{0}'.format(kernel_r)] = kernelPer
-    return data
-
-def add_clutter_type(data):
-    nameList = ['water_index', 'broaden_index', 'plant_index', 'bulding_index']
-    for name, start in zip(nameList, [0, 3, 6, 9]):
-        tmp = np.zeros_like(data.loc[:, 'Clutter Index'])
-        tmp[(start<data.loc[:, 'Clutter Index'].values)&(data.loc[:, 'Clutter Index'].values<start+4)] = 1
-        data.loc[:, name] = tmp
-    return data
-
-def divideDistance(data, bins=5):
-    logDistance = np.log10(1+data.loc[:, 'seperation_distance'].values)
-    plane4type = (bins-1) * np.ones_like(logDistance)
-    for idx, bound in enumerate(np.linspace(0, np.log10(5000), bins)):
-        plane4type[(logDistance<bound+5)&(logDistance>bound)] = idx + 1
-    data.loc[:, 'plane4type'] = plane4type
-    return data
-
-def add_feature(data):
-    '''Add new features into data'''
-    data.loc[:, 'Effective_Cell_Height'] = data.loc[:, 'Height'].values + data.loc[:, 'Cell Altitude'].values
-    data.loc[:, 'Effective_Height'] = data.loc[:, 'Altitude'].values + data.loc[:, 'Building Height'].values
-    data.loc[:, 'seperation_distance'] = np.sqrt((data.loc[:, 'X'].values - data.loc[:, 'Cell X'].values - 2.5)**2 + (data.loc[:, 'Y'].values - data.loc[:, 'Cell Y'].values + 2.5)**2)
-    data.loc[:, 'dh'] = np.log10(1+data.loc[:, 'seperation_distance'].values)*np.log10(1+data.loc[:, 'Effective_Cell_Height'].values)
-    data.loc[:, 'X_relative'] = data.loc[:, 'X'].values - data.loc[:, 'Cell X'].values - 2.5
-    data.loc[:, 'Y_relative'] = data.loc[:, 'Y'].values - data.loc[:, 'Cell Y'].values + 2.5
-    data.loc[:, 'deltaH'] = data.loc[:, 'Effective_Cell_Height'].values - data.loc[:, 'Effective_Height'].values - data.loc[:, 'seperation_distance'].values*np.tan(np.pi/180.0*(data.loc[:, 'Electrical Downtilt'].values + data.loc[:, 'Mechanical Downtilt'].values))
-
-    data.loc[:, 'distance_3D'] = np.sqrt(data.loc[:, 'seperation_distance'].values**2 + data.loc[:, 'deltaH'].values**2)
-    data.loc[:, 'vertical_theta'] = rec2polar_array(data.loc[:, 'deltaH'].values, data.loc[:, 'seperation_distance'].values)*180.0/np.pi
-    data.loc[:, 'horizon_theta'] = rec2polar_array(data.loc[:, 'X_relative'].values, data.loc[:, 'Y_relative'].values)
-    
-    deltaTheta, theta_relative = [], []
-    thetaXY = 90 - data.loc[:, 'horizon_theta'].values*180.0/np.pi
-    thetaXY[thetaXY<0] += 360
-    data.loc[:, 'horizon_theta'] = thetaXY
-    deltaTh = thetaXY - data.loc[:, 'Azimuth'].values
-    deltaTh[deltaTh<0] += 360
-    data.loc[:, 'deltaTheta'] = deltaTh
-    try:
-        tempdata = preprocessing.scale(data.drop('RSRP', axis=1).values, axis=0)
-    except: 
-        tempdata = preprocessing.scale(data.values, axis=0)
-        pass
-    pca = decomposition.PCA(n_components=3)
-    pcafeature = pca.fit_transform(tempdata)
-    for idx in np.arange(3):
-        # data.loc[:, ['pca{0}'.format(i) for i in range(3)]]=pcafeature
-        # ['pca{0}'.format(i) for i in range(3)]
-        data.loc[:, 'pca_{0}'.format(idx)] = pcafeature[:, idx]
-    
-    clutter_class = np.arange(1, 21)
-    clutter = []
-    for cl in data.loc[:, 'Clutter Index'].values:
-        clutter.append(np.array(cl == np.array(clutter_class), dtype=np.float32))
-    clutter = np.array(clutter)
-    for idx, name in enumerate(['one_hot'+str(int(i)) for i in range(len(clutter_class))]):    
-        # data.loc[:, ['pca{0}'.format(i) for i in range(3)]]=pcafeature
-        data.loc[:, name] = clutter[:, idx]
-    
-    # data = data.drop(['X', 'Y', 'Cell X', 'Cell Y', 'Clutter Index'], axis=1) 
-    #data = ConvHeight(data, 1)
-    #data = ConvHeight(data, 3)
-    #data = ConvHeight(data, 5)
-    data = add_clutter_type(data)
-    data = divideDistance(data)
-    return data
-
-
-def gen_data(data_path, test_size=5):
-    list_names=os.listdir(data_path)
-    data=pd.read_csv(os.path.join(data_path, list_names[0]))
-    data = add_feature(data)
-    data.to_csv('train.csv', index=False)
-    list_names = list_names[0: 6]
-    for i in tqdm(range(1,  len(list_names))):
-        data=pd.read_csv(os.path.join(data_path,list_names[i]))
-        data=add_feature(data)
-        if i < (len(list_names) - test_size):
-            data.to_csv('train.csv', index=False, header=False, mode='a+')
-        elif i == (len(list_names) - test_size):
-            data.to_csv('test.csv', index=False)
-        else:
-            data.to_csv('test.csv', index=False, header=False, mode='a+')
-
-gen_data('../../Downloads/train_set/')
-train = pd.read_csv('train.csv')
-validate = pd.read_csv('test.csv')
-
-test = {'Name': [], 'Data': []}
-for testfile in os.listdir('../../Downloads/test_set/'):
-    test['Data'].append(add_feature(pd.read_csv(os.path.join('../../Downloads/test_set/',testfile))))
-    test['Name'].append(testfile)
-
-# Get the divideDistance: Transmitter - 1 -> 2 -> 3 -> 4 -> 
-# Build up 4 models for different place
 trainX, trainY = train.drop('RSRP',axis=1), train['RSRP']
+# trainX = np.log1p(trainX)
+
 valX, valY = validate.drop('RSRP',axis=1), validate['RSRP']
+print('read finished')
 
-model = []
-for _ in range(1, 5):
-    xgb_model = XGBRegressor(booster='gbtree',
-                        objective= 'reg:linear',
-                        eval_metric='rmse',
-                        gamma = 0.05,
-                        min_child_weight=3,
-                        max_depth= 6,
-                        subsample= 0.8,
-                        colsample_bytree= 0.8,
-                        tree_method= 'exact',
-                        learning_rate=0.1,
-                        n_estimators=30,
-                        scale_pos_weight=1,
-                        seed=27)
-    model.append(xgb_model)
+import lightgbm as lgb
 
-valY_predict = np.zeros_like(valY)
+lgb_model = lgb.LGBMRegressor(objective='regression',
+                              learning_rate=0.1, n_estimators=2000,
+                              max_bin = 100
+                              )
+begin_time=time.time()
+#score=cv_rmse(xgb_model,X,y)
+lgb_model.fit(trainX, trainY)
+print('Fitting: %f s' % (time.time()-begin_time))
 
-plane4type_train = trainX.loc[:, 'plane4type'].values
-plane4type_val = valX.loc[:, 'plane4type'].values
+valY_predict = lgb_model.predict(valX)
 
-for idx, plane_type in tqdm(enumerate(range(1, 5))):
-
-    trainX_, trainY_ = trainX.loc[plane4type_train==plane_type, :], trainY.loc[plane4type_train==plane_type]
-    trainX_ = trainX_.drop('plane4type', axis=1)
-    model[idx].fit(trainX_, trainY_)
-
-    valX_, valY_ = valX.loc[plane4type_val==plane_type, :], valY.loc[plane4type_val==plane_type]
-    valX_ = valX_.drop('plane4type', axis=1)
-    valY_predict[plane4type_val==plane_type] = model[idx].predict(valX_)
-
-Rmse = sqrt(mean_squared_error(valY_predict,valY.values))
+Rmse = sqrt(mean_squared_error(valY_predict, valY.values))
 
 Recall, Precision, PCRR = Invilidation(valY_predict, valY.values)
+
+# protocal = 2
 
 print("Recall : %.4g" % Recall)
 print("Precision : %.4g" % Precision)
 print("PCRR : %.4g" % PCRR)
 print("Rmse : %.4g" % Rmse)
- 
-for name, data in zip(test['Name'], test['Data']):
-    predict_test = np.zeros([data.shape[0], ])
-    plane4type_test = data.loc[:, 'plane4type'].values
-    for idx, plane_type in tqdm(enumerate(range(1, 5))):
-        testX = data.loc[plane4type_test==plane_type, :]
-        testX = testX.drop('plane4type', axis=1)
-        predict_test[plane4type_test == plane_type] = model[idx].predict(testX)
-    dict_output = {'RSRP': None}
-    dict_output['RSRP'] = np.reshape(predict_test, [-1, 1]).tolist()
-    with open('{0}_result.txt'.format(name), "w") as f:
-        f.write(str(dict_output))
+
+import pickle
+with open('lgb.pkl', 'wb') as fw:
+    pickle.dump(lgb_model, fw, protocal=2)
+
+
+
+
+
 
