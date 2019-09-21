@@ -15,15 +15,15 @@ mpirank = int(comm.Get_rank())  # rank of this core
 # use 10 kernel
 
 
-transmitter = pd.read_csv('../../Downloads/transmitter.csv')
-receiver =pd.read_csv('../../Downloads/receiver.csv')
+transmitter = pd.read_csv('./transmitter.csv')
+receiver =pd.read_csv('./receiver.csv')
 
 def chunk(data, batchsize):
     num = int(len(data)/batchsize)+1
     for i in range(num):
         yield data[i*batchsize: (i+1)*batchsize]
 
-idxList = [idx for idx in chunk(range(receiver.shape[0]), int(receiver.shape[0]/10))]
+idxList = [idx for idx in chunk(range(receiver.shape[0]), int(receiver.shape[0]/20))]
 receiver = receiver.loc[idxList[mpirank], :]
 receiver.index = np.arange(receiver.shape[0])
 # Add basic information
@@ -91,10 +91,10 @@ def get_nearestFeature(receiver, transmitter, top_n_num=4):
         flatten = np.append(flatten, np.array(neighborNum))  # concat neighborNum list
         topFeature.append(flatten)
     topFeature = np.stack(topFeature, axis=0)
-    columns = np.reshape([['{0}_{1}'.format(*[origin, top_n]) for top_n in range(top_n_num)] for origin in list(topTransmitter.columns)],
-           [1, -1])
-    columns = np.append(columns, ['nearest_distance_{0}'.format(top_n) for top_n in range(top_n_num)])
-    columns = np.append(columns, ['neighbor_num_{0}'.format(thres) for thres in thresList])
+    columns = np.reshape([[str(int(origin))+'_'+str(int(top_n)) for top_n in range(top_n_num)] for origin in list(topTransmitter.columns)],
+           [1, -1]) 
+    columns = np.append(columns, ['nearest_distance_'+str(int(top_n)) for top_n in range(top_n_num)])
+    columns = np.append(columns, ['neighbor_num_'+str(int(thres)) for thres in thresList])
     return pd.DataFrame(topFeature, columns=columns)
 
 # Add nearest information of transmitter
@@ -124,10 +124,10 @@ def one_hot_encoding(data):
     '''for clutter index'''
     data = add_clutter_type(data)
     clutter = get_clutter_one_hot(data)
-    return pd.concat([receiver, nearestFeature], axis=1)
+    return pd.concat([data, clutter], axis=1)
 
-receiver = one_hot_encoding(receiver)
+receiver = add_clutter_type(receiver)
 
-receiver.to_csv('new_feature_receive_{0}.csv'.format(mpirank), index=False)
+receiver.to_csv('feature/new_feature_receive_{0}.csv'.format(int(mpirank)), index=False)
 
 
