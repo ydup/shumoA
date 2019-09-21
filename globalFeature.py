@@ -6,11 +6,26 @@ import pandas as pd
 import os
 from tqdm import tqdm
 from scipy.spatial import distance_matrix
+from mpi4py import MPI
+
+comm = MPI.COMM_WORLD
+mpisize = int(comm.Get_size())  # total num of the cpu cores, the n_splits of the k-Fold
+mpirank = int(comm.Get_rank())  # rank of this core
+
+# use 10 kernel
 
 
 transmitter = pd.read_csv('../../Downloads/transmitter.csv')
 receiver =pd.read_csv('../../Downloads/receiver.csv')
 
+def chunk(data, batchsize):
+    num = int(len(data)/batchsize)+1
+    for i in range(num):
+        yield data[i*batchsize: (i+1)*batchsize]
+
+idxList = [idx for idx in chunk(range(receiver.shape[0]), int(receiver.shape[0]/10))]
+receiver = receiver.loc[idxList[mpirank], :]
+receiver.index = np.arange(receiver.shape[0])
 # Add basic information
 
 # Transmitter
@@ -83,7 +98,7 @@ def get_nearestFeature(receiver, transmitter, top_n_num=4):
     return pd.DataFrame(topFeature, columns=columns)
 
 # Add nearest information of transmitter
-nearestFeature = get_nearestFeature(distance, transmitter, top_n_num=5)
+nearestFeature = get_nearestFeature(receiver, transmitter, top_n_num=5)
 receiver = pd.concat([receiver, nearestFeature], axis=1)
 
 
@@ -113,6 +128,6 @@ def one_hot_encoding(data):
 
 receiver = one_hot_encoding(receiver)
 
-receiver.to_csv('new_feature_receive.csv', index=False)
+receiver.to_csv('new_feature_receive_{0}.csv'.format(mpirank), index=False)
 
 
