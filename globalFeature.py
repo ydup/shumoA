@@ -61,6 +61,7 @@ def log_receiver(data):
     # Log transform for the Height / distance
     data.loc[:, 'Altitude'] = np.log10(1 + data.loc[:, 'Altitude'])
     data.loc[:, 'Building Height'] = np.log10(1 + data.loc[:, 'Building Height'])
+    data.loc[:, 'Effective_Height'] = np.log10(1 + data.loc[:, 'Effective_Height'])
     return data
 
 receiver = log_receiver(receiver)
@@ -70,6 +71,17 @@ receiver = log_receiver(receiver)
 def get_neighborNum(distanceMatrix, thres=10000):
     thresMask = distanceMatrix < thres
     return np.sum(thresMask)
+
+def rec2polar_array(x, y):
+    R = np.sqrt(x**2 + y**2)  # the length from (tmp_x, tmp_y) to (0, 0)
+    # the point is at y axis
+    theta = np.zeros_like(R)
+    theta[x == 0] = np.sign(y[x == 0])*np.pi/2
+    # the point is at I and IV regions
+    theta[x > 0] = np.arctan(y[x > 0]/x[x > 0])
+    # the point is at II and III regions
+    theta[x < 0] = np.sign(y[x < 0])*np.pi+np.arctan(y[x < 0]/x[x < 0])
+    return R, theta
 
 def get_nearestFeature(receiver, transmitter, top_n_num=4):
     '''(Receiver, transmitter)'''
@@ -84,17 +96,26 @@ def get_nearestFeature(receiver, transmitter, top_n_num=4):
         topTransmitter = transmitter.loc[top_n_index, ]
         topTransmitter = topTransmitter.drop(['Cell X', 'Cell Y'], axis=1)
         flatten = np.reshape(topTransmitter.T.values, [1, -1])
+        # Neibor num
         neighborNum = []
         for thres in thresList:
             neighborNum.append(get_neighborNum(distanceMatrix, thres))
         flatten = np.append(flatten, top_n_value)  # concat top_n_value list
         flatten = np.append(flatten, np.array(neighborNum))  # concat neighborNum list
+        # R and theta
+        topRSPower = topTransmitter.loc[top_n_index, 'RS Power'].values
+        topdeltaX = tranX[top_n_index] - recX
+        topdeltaY = tranY[top_n_index] - recY
+        topQ, toptheta = rec2polar_array(topdeltaX/topRSPower, topdeltaY/topRSPower)
+        flatten = np.append(flatten, [np.mean(topQ), np.mean(toptheta)])
+        # append to top feature
         topFeature.append(flatten)
     topFeature = np.stack(topFeature, axis=0)
     columns = np.reshape([[str(origin)+'_'+str(int(top_n)) for top_n in range(top_n_num)] for origin in list(topTransmitter.columns)],
            [1, -1]) 
     columns = np.append(columns, ['nearest_distance_'+str(int(top_n)) for top_n in range(top_n_num)])
     columns = np.append(columns, ['neighbor_num_'+str(int(thres)) for thres in thresList])
+    columns = np.append(columns, ['nerest_Q', 'nearest_theta'])
     return pd.DataFrame(topFeature, columns=columns)
 
 # Add nearest information of transmitter
@@ -108,7 +129,7 @@ def add_clutter_type(data):
     nameList = ['water_index', 'broaden_index', 'plant_index', 'bulding_index']
     for name, start in zip(nameList, [0, 3, 6, 9]):
         tmp = np.zeros_like(data.loc[:, 'Clutter Index'])
-        tmp[(start<data.loc[:, 'Clutter Index'].values)&(data.loc[:, 'Clutter Index'].values<start+4)] = 1
+        tmp[(start<=data.loc[:, 'Clutter Index'].values)&(data.loc[:, 'Clutter Index'].values<start+3)] = 1
         data.loc[:, name] = tmp
     return data
 
@@ -128,6 +149,6 @@ def one_hot_encoding(data):
 
 receiver = add_clutter_type(receiver)
 
-receiver.to_csv('feature/new_feature_receive_{0}.csv'.format(int(mpirank)), index=False)
+receiver.to_csv('new_feature/new_feature_receive_{0}.csv'.format(int(mpirank)), index=False)
 
 
