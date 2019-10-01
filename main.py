@@ -42,10 +42,15 @@ def Invilidation(predictions, targets):
 
 data = []
 for i in tqdm(range(28)):
-    data.append(pd.read_csv('feature/new_feature_receive_'+str(int(i))+'.csv', index_col=0))
+    data.append(pd.read_csv('feature/new_feature_receive_'+str(int(i))+'.csv'))
 
 data = pd.concat(data, axis=0)
 data.index = np.arange(data.shape[0])
+
+data = data.loc[:, ['Azimuth_2', 'Azimuth_3', 'Height_0', 'Azimuth_1', 'Azimuth_4', 'Altitude', 
+    'neighbor_num_3000', 'Azimuth_0', 'neighbor_num_4000', 'neighbor_num_2000', 'neighbor_num_5000', 
+    'nearest_distance_3', 'nearest_distance_4', 'nerest_Q', 'nearest_distance_2', 'nearest_distance_1', 
+    'Y', 'nearest_distance_0', 'X', 'nearest_theta']]
 
 # validate = pd.read_csv('test.csv')
 percentage = 0.95
@@ -65,12 +70,12 @@ print('read finished')
 import lightgbm as lgb
 
 lgb_model = lgb.LGBMRegressor(objective='regression',
-                              learning_rate=0.1, n_estimators=2000,
-                              max_bin = 100
+                              learning_rate=0.08, n_estimators=4000, 
+                              max_bin = 200
                               )
 begin_time=time.time()
 #score=cv_rmse(xgb_model,X,y)
-lgb_model.fit(trainX, trainY)
+lgb_model.fit(trainX, trainY, eval_set=(valX, valY), early_stopping_rounds=2000)
 print('Fitting: %f s' % (time.time()-begin_time))
 
 valY_predict = lgb_model.predict(valX)

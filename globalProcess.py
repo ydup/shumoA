@@ -1,10 +1,7 @@
 '''
 Process the global information
 
-
-1. The actual transmitter
-2. The actual RPRS
-
+Clean the overlap data
 '''
 
 import numpy as np
@@ -17,7 +14,6 @@ def gen_data(data_path, dst_path='train.csv'):
     list_names=os.listdir(data_path)
     data = pd.read_csv(os.path.join(data_path, list_names[0]))
     data.to_csv(dst_path, index=False)
-    list_names = list_names[0: 6]
     for i in tqdm(range(1,  len(list_names)), desc=dst_path):
         data=pd.read_csv(os.path.join(data_path,list_names[i]))
         data.to_csv(dst_path, index=False, header=False, mode='a+')

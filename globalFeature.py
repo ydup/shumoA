@@ -1,5 +1,5 @@
 '''
-Add global feature
+Add feature
 '''
 import numpy as np
 import pandas as pd
@@ -12,8 +12,7 @@ comm = MPI.COMM_WORLD
 mpisize = int(comm.Get_size())  # total num of the cpu cores, the n_splits of the k-Fold
 mpirank = int(comm.Get_rank())  # rank of this core
 
-# use 10 kernel
-
+# use 28 kernel
 
 transmitter = pd.read_csv('./transmitter.csv')
 receiver =pd.read_csv('./receiver.csv')
@@ -23,7 +22,7 @@ def chunk(data, batchsize):
     for i in range(num):
         yield data[i*batchsize: (i+1)*batchsize]
 
-idxList = [idx for idx in chunk(range(receiver.shape[0]), int(receiver.shape[0]/20))]
+idxList = [idx for idx in chunk(range(receiver.shape[0]), int(receiver.shape[0]/28))]
 receiver = receiver.loc[idxList[mpirank], :]
 receiver.index = np.arange(receiver.shape[0])
 # Add basic information

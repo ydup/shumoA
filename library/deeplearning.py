@@ -50,11 +50,12 @@ def Image_ConvNet(inputs):
                     inputs=ReLUBN(conv2), 
                     pool_size=[2, 2], 
                     strides=2)
-    state = tf.layers.dense(inputs=tf.layers.flatten(pool2), units=128, activation=tf.nn.relu)
+    state = tf.layers.dense(inputs=tf.layers.flatten(pool2), units=400, activation=tf.nn.relu)
     return state
 
 def MLP(inputs):
-    mlp1 = tf.layers.dense(inputs=inputs, units=32)
+    mlp1 = tf.layers.dense(inputs=inputs, units=128)
     mlp1 = tf.layers.dropout(ReLUBN(mlp1), 0.2)
-    return mlp1
+    mlp2 = tf.layers.dense(inputs=mlp1, units=400, activation=tf.nn.sigmoid)
+    return mlp2
 
